@@ -62,7 +62,11 @@ Or `pip install .` to get a `wp2shell` command on your `PATH`.
 
 ### check — confirm the vulnerability (safe)
 
-Confirms exploitability with a differential time delay. It reads no data and changes nothing.
+Confirms exploitability with paired differential time delays. It reads no data and changes
+nothing. By default it sends three baseline/delayed pairs and decides on the median delta, which
+is more reliable on noisy or rate-limited targets than a single timing comparison. If timing
+confirmation fails, `check` also looks for passive public WordPress version hints from the REST API
+generator, the homepage generator meta tag, and core asset `?ver=` query strings.
 
 ```
 ./wp2shell.py check http://target
@@ -97,6 +101,7 @@ path. Remove it when finished.
 | `--proxy URL`       | all        | Route traffic through an HTTP proxy (for example, Burp).             |
 | `--timeout N`       | all        | Request timeout in seconds.                                          |
 | `--sleep N`         | check      | Delay used to confirm the injection.                                 |
+| `--samples N`       | check      | Baseline/delayed timing pairs to compare (default 3).                |
 | `--preset`          | read       | `fingerprint` or `users`.                                            |
 | `--query`           | read       | A scalar SQL expression to read.                                     |
 | `--prefix`          | read       | Database table prefix (default `wp_`).                               |
@@ -114,7 +119,7 @@ endpoint via the `rest_pre_dispatch` filter.
 ## Legal
 
 For authorized security testing only. Use it exclusively against systems you own or have explicit
-written permission to test. The author accepts no liability for misuse.
+written permission to test. No warranty is provided and no liability is accepted for misuse.
 
 ## References
 

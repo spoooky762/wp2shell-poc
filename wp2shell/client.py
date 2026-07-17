@@ -75,6 +75,24 @@ class BatchClient:
             raise TargetError(f"cannot reach {self.endpoint}: {reason}") from None
         return Response(status, time.monotonic() - start, body)
 
+    def get(self, path: str) -> Response:
+        url = self.base_url + (path if path.startswith("/") else f"/{path}")
+        request = urllib.request.Request(
+            url,
+            method="GET",
+            headers={"User-Agent": self.user_agent},
+        )
+        start = time.monotonic()
+        try:
+            resp = self._opener.open(request, timeout=self.timeout)
+            status, body = resp.status, resp.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as exc:
+            status, body = exc.code, exc.read().decode("utf-8", "replace")
+        except OSError as exc:  # URLError, connection refused, timeout, DNS failure
+            reason = getattr(exc, "reason", exc)
+            raise TargetError(f"cannot reach {url}: {reason}") from None
+        return Response(status, time.monotonic() - start, body)
+
     def probe(self) -> Response:
         """A benign empty batch, used to test whether the endpoint is reachable and open."""
         return self.post({"requests": []})

