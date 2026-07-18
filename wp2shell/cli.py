@@ -115,9 +115,21 @@ def cmd_check(args: argparse.Namespace) -> int:
         return 1
     markers = client.batch_marker_codes(probe)
     if markers:
-        good(f"Batch probe -> HTTP 207; markers matched: {', '.join(markers)}")
+        info(f"Batch probe -> HTTP 207; markers matched: {', '.join(markers)}")
     else:
         good("Batch endpoint reachable and unauthenticated (HTTP 207).")
+
+    route_confusion = client.has_route_confusion_markers(probe)
+    if route_confusion:
+        good("VULNERABLE — batch route-confusion behavior detected.")
+        if not args.confirm_sqli:
+            info("SQL timing confirmation not sent; use --confirm-sqli for the active SQLi probe.")
+            return 0
+    elif not args.confirm_sqli:
+        bad("Route-confusion marker pattern not detected.")
+        if any(hint.affected for hint in hints):
+            warn("Version suggests exposure, but the batch marker probe did not show vulnerable behavior.")
+        return 2
 
     result = BlindSQLi(client, sleep=args.sleep).confirm_timing(samples=args.samples)
     if args.samples > 1:
@@ -127,7 +139,13 @@ def cmd_check(args: argparse.Namespace) -> int:
         info(f"Timing samples: {details}")
         info(f"Median delta {result.delta:.2f}s; threshold {result.threshold:.2f}s.")
     if result.confirmed:
-        good(f"VULNERABLE — baseline {result.baseline:.2f}s, injected {result.delayed:.2f}s.")
+        good(f"SQL timing confirmed — baseline {result.baseline:.2f}s, injected {result.delayed:.2f}s.")
+        return 0
+    if route_confusion:
+        warn(
+            f"SQL timing not confirmed — baseline {result.baseline:.2f}s, injected "
+            f"{result.delayed:.2f}s; route-confusion marker pattern still detected."
+        )
         return 0
     bad(f"Not timing-confirmed — baseline {result.baseline:.2f}s, injected {result.delayed:.2f}s.")
     if any(hint.affected for hint in hints):
@@ -271,12 +289,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     check = sub.add_parser("check", help="safely confirm the vulnerability (non-destructive)")
     _add_common(check)
-    check.add_argument("--sleep", type=float, default=3.0, help="confirmation delay (default: 3)")
+    check.add_argument(
+        "--sleep",
+        type=float,
+        default=3.0,
+        help="SQL timing delay used with --confirm-sqli (default: 3)",
+    )
     check.add_argument(
         "--samples",
         type=int,
         default=3,
-        help="baseline/delayed timing pairs for confirmation (default: 3)",
+        help="baseline/delayed SQL timing pairs used with --confirm-sqli (default: 3)",
+    )
+    check.add_argument(
+        "--confirm-sqli",
+        action="store_true",
+        help="also send the active SQL timing confirmation payload",
     )
     check.set_defaults(func=cmd_check)
 

@@ -69,16 +69,25 @@ Or `pip install .` to get a `wp2shell` command on your `PATH`.
 ### check — confirm the vulnerability (safe)
 
 Prints passive WordPress markers and public version hints first, then sends a benign batch marker
-probe. If the batch route behaves like WordPress, the probe should return HTTP 207 with markers
-such as `parse_path_failed`, `block_cannot_read`, or `rest_batch_not_allowed`. After that, `check`
-tries a paired timing confirmation. The timing step reads no data and changes nothing. By default
-it sends three baseline/delayed pairs and decides on the median delta, which is more reliable on
-noisy or rate-limited targets than a single timing comparison.
+probe. A vulnerable batch implementation returns HTTP 207 with the route-confusion marker pattern
+`parse_path_failed`, `block_cannot_read`, and `rest_batch_not_allowed`.
 
-Treat the signals separately: an affected public version is strong triage evidence, while timing
-confirmation proves the SQLi path reached the database. A WAF or edge rule can block the timing
-payload, so a failed timing check is reported as "not timing-confirmed" rather than a clean bill of
-health.
+The marker probe is based on the WordPress core fix. The malformed `///` request creates
+`parse_path_failed`; a `/wp/v2/posts` request acts as a batch-allowed spacer; the
+`/wp/v2/block-renderer/...` route is not batch-allowed but returns `block_cannot_read` if its
+handler is reached anonymously; `/batch/v1` gives `rest_batch_not_allowed`. On vulnerable builds
+the parse error shifts the batch handler arrays out of step, so the spacer request is dispatched
+under the block-renderer handler. Fixed builds keep the arrays aligned, so this exact all-three
+pattern should not appear for the crafted probe.
+
+By default, `check` stops there and does not send a SQL timing payload. Use `--confirm-sqli` when
+you also want the active paired timing confirmation. The timing step reads no data and changes
+nothing; it sends three baseline/delayed pairs by default and decides on the median delta.
+
+Treat the signals separately: an affected public version is strong triage evidence, the batch
+marker pattern confirms the vulnerable route-confusion behavior, and timing confirmation proves the
+SQLi path reached the database. A WAF or edge rule can block the timing payload, so a failed timing
+check does not override a positive marker probe.
 
 ```
 ./wp2shell.py check http://target
@@ -113,8 +122,9 @@ path. Remove it when finished.
 | `--rest-route`      | all        | Use `/?rest_route=/batch/v1` (for sites without pretty permalinks).  |
 | `--proxy URL`       | all        | Route traffic through an HTTP proxy (for example, Burp).             |
 | `--timeout N`       | all        | Request timeout in seconds.                                          |
-| `--sleep N`         | check      | Delay used to confirm the injection.                                 |
-| `--samples N`       | check      | Baseline/delayed timing pairs to compare (default 3).                |
+| `--sleep N`         | check      | Delay used with `--confirm-sqli`.                                    |
+| `--samples N`       | check      | Timing pairs used with `--confirm-sqli` (default 3).                 |
+| `--confirm-sqli`    | check      | Also send the active SQL timing confirmation payload.                |
 | `--preset`          | read       | `fingerprint` or `users`.                                            |
 | `--query`           | read       | A scalar SQL expression to read.                                     |
 | `--prefix`          | read       | Database table prefix (default `wp_`).                               |
