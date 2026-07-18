@@ -20,8 +20,8 @@ jobs:
         pip install pylint ruff black
     - name: Syntax Check etc 
       run: |
-        ruff check --fix --unsafe-fixes --select ALL - $(git ls-files '*.py')
+        ruff check --fix --unsafe-fixes --select ALL $(git ls-files './') -
 
     - name: Analysing the code with pylint
       run: |
-        pylint $(git ls-files '*.py')
+        pylint --max-line-length=100 $(git ls-files '*.py')
